@@ -34,10 +34,10 @@ runs:
             if (data.ok && data.user) {
               return data.user.id;
             }
-            return 'not_found';
+            return process.env.AUTHOR_EMAIL;
           } catch (error) {
             console.error('Error looking up Slack user:', error);
-            return 'not_found';
+            return process.env.AUTHOR_EMAIL;
           }
         result-encoding: string
 
