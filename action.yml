@@ -1,5 +1,5 @@
 name: "Notify Slack"
-description: "does what the name says. it notfies slack when a build fails."
+description: "Sends Slack notifications when builds fail. Supports threaded replies when slack-channel is provided."
 author: "514 Labs"
 
 inputs:
@@ -9,6 +9,13 @@ inputs:
   slack-webhook-url:
     description: 'Slack Webhook URL for notifications'
     required: true
+  slack-channel:
+    description: 'Slack channel ID or name (e.g., #general or C1234567890). Required for threaded replies with additional-message.'
+    required: false
+    default: 'C08DZVDM56G'
+  additional-message:
+    description: 'Additional message to add to the notification'
+    required: false
 
 runs:
   using: "composite"
@@ -24,21 +31,21 @@ runs:
         script: |
           console.log('Event name:', context.eventName);
           console.log('Context info:', context.actor, context.eventName, context.ref);
-          
+
           let email = null;
-          
+
           // For workflow_dispatch events or when we don't have commit info
           if (!email && context.actor) {
             console.log('Trying to get email for actor:', context.actor);
-            
+
             try {
               // Try to get the user's email from GitHub API
               const { data: userData } = await github.rest.users.getByUsername({
                 username: context.actor
               });
-              
+
               console.log('User data:', userData);
-              
+
               if (userData.email) {
                 email = userData.email;
                 console.log('Found email for actor:', email);
@@ -50,7 +57,7 @@ runs:
                   author: context.actor,
                   per_page: 1
                 });
-                
+
                 if (commits && commits.length > 0 && commits[0].commit.author) {
                   email = commits[0].commit.author.email;
                   console.log('Found email from user commits:', email);
@@ -60,13 +67,13 @@ runs:
               console.error('Error fetching user data:', error);
             }
           }
-          
+
           // If we still don't have an email, use the actor username as fallback
           if (!email) {
             console.log('Could not find email, using actor as fallback:', context.actor);
             return context.actor;
           }
-          
+
           // Try to find the Slack user by email
           let slackUserId = email;
           try {
@@ -85,7 +92,7 @@ runs:
           } catch (error) {
             console.error('Error looking up Slack user:', error);
           }
-          
+
           return slackUserId;
 
     - name: Construct Slack payload
@@ -106,13 +113,54 @@ runs:
           Author: <@${slackUserId}>
           See: ${context.serverUrl}/${context.repo.owner}/${context.repo.repo}/actions/runs/${context.runId}`;
 
-          return JSON.stringify({ text: message }, null, 2);
+          const payload = { text: message };
+          return JSON.stringify(payload, null, 2);
       env:
         SLACK_USER_ID: ${{ steps.slack-user.outputs.result }}
 
-    - name: Notify Slack on failure
+    - name: Send main Slack notification (Webhook Mode)
+      if: ${{ inputs.slack-channel == '' }}
       uses: slackapi/slack-github-action@v1.25.0
       with:
         payload: ${{ steps.slack-payload.outputs.result }}
       env:
         SLACK_WEBHOOK_URL: ${{ inputs.slack-webhook-url }}
+
+    - name: Send main Slack notification (Bot Token Mode)
+      id: slack-notification-bot-actual
+      if: ${{ inputs.slack-channel != '' }}
+      uses: slackapi/slack-github-action@v1.25.0
+      with:
+        channel-id: ${{ inputs.slack-channel }}
+        payload: ${{ steps.slack-payload.outputs.result }}
+      env:
+        SLACK_BOT_TOKEN: ${{ inputs.slack-bot-token }}
+
+    - name: Construct threaded reply payload
+      id: thread-payload
+      if: ${{ inputs.additional-message != '' && inputs.slack-channel != '' }}
+      uses: actions/github-script@v7
+      with:
+        result-encoding: string
+        script: |
+          const additionalMessage = process.env.ADDITIONAL_MESSAGE;
+          const threadTs = process.env.THREAD_TS;
+
+          const payload = {
+            text: additionalMessage,
+            thread_ts: threadTs
+          };
+
+          return JSON.stringify(payload, null, 2);
+      env:
+        ADDITIONAL_MESSAGE: ${{ inputs.additional-message }}
+        THREAD_TS: ${{ steps.slack-notification-bot-actual.outputs.ts }}
+
+    - name: Send additional message as threaded reply
+      if: ${{ inputs.additional-message != '' && inputs.slack-channel != '' }}
+      uses: slackapi/slack-github-action@v1.25.0
+      with:
+        channel-id: ${{ inputs.slack-channel }}
+        payload: ${{ steps.thread-payload.outputs.result }}
+      env:
+        SLACK_BOT_TOKEN: ${{ inputs.slack-bot-token }}
