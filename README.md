@@ -12,7 +12,7 @@ The action identifies the first human commit author who has an active Slack acco
   with:
     slack-bot-token: ${{ secrets.SLACK_BOT_TOKEN }}
     slack-webhook-url: ${{ secrets.SLACK_GITHUB_ACTIONS_WEBHOOK_URL }}
-    github-token: ${{ secrets.ORG_MEMBERS_READ_GITHUB_TOKEN }}
+    github-token: ${{ secrets.SLACK_AUTHOR_LOOKUP_GITHUB_TOKEN }}
 ```
 
 `github-token` should be a GitHub App installation token with organization **Members: read** access, or another token allowed to read organization-verified domain emails. Without that access, the action falls back to the emails recorded on the commit. The workflow's default `GITHUB_TOKEN` is used when the input is omitted.
